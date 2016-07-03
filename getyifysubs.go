@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/eefret/gomdb"
@@ -19,6 +20,7 @@ type movie struct {
 
 // scan a folder for dirs and return them in a list
 func scandirs(path string) []string {
+	r, _ := regexp.Compile(`.+\)`)
 	count := 0
 	dirs := 0
 	files, err := ioutil.ReadDir(path)
@@ -27,13 +29,13 @@ func scandirs(path string) []string {
 	}
 	// this is ugly, find a better way so this doesn't loop dirs twice
 	for _, f := range files {
-		if f.IsDir() && strings.Contains(f.Name(), "[YTS.AG]") {
+		if f.IsDir() && r.MatchString(f.Name()) && f.Name()[0] != '(' {
 			dirs++
 		}
 	}
 	founddirs := make([]string, dirs, dirs+1)
 	for _, f := range files {
-		if f.IsDir() && strings.Contains(f.Name(), "[YTS.AG]") {
+		if f.IsDir() && r.MatchString(f.Name()) && f.Name()[0] != '(' {
 			founddirs[count] = f.Name()
 			count++
 		}
@@ -57,7 +59,7 @@ func getimdb(title string, date string) string {
 	query := &gomdb.QueryData{Title: title, Year: date}
 	res, err := gomdb.MovieByTitle(query)
 	if err != nil {
-		log.Panicln("Querying OMDB failed:", err)
+		//fmt.Println("Querying OMDB failed:", err)
 	}
 	return res.ImdbID
 }
@@ -69,8 +71,7 @@ func main() {
 	} else {
 		path = os.Args[1]
 	}
-	fmt.Println(path)
-	fmt.Println("Starting")
+	fmt.Println("Finding movies in:", path)
 	dirs := scandirs(path)
 	m := new(movie)
 
@@ -79,13 +80,14 @@ func main() {
 
 		subs, err := yifysubs.GetSubtitles(getimdb(m.Title, m.Date))
 		if err != nil {
-			log.Panic(err)
+			//fmt.Println("Sub finding failed")
+			continue
 		}
 		en := subs["english"][0]
 
 		file, err := os.Create(path + `\` + dir + `\` + m.Title + " " + "subtitles.srt")
 		if err != nil {
-			log.Panic(err)
+			log.Panic("Unable to create subtitle file", err)
 		}
 
 		defer file.Close()
@@ -96,6 +98,6 @@ func main() {
 			log.Panic(err)
 		}
 
-		fmt.Println("Current dir:", dir)
+		fmt.Println("Successfully got subtitles for:", dir)
 	}
 }
