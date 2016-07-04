@@ -18,9 +18,11 @@ type movie struct {
 	Date  string
 }
 
+//TODO: check if scanned dir includes a video file, if not, dont add it to our list
+
 // scan a folder for dirs and return them in a list
 func scandirs(path string) []string {
-	r, _ := regexp.Compile(`.+\)`)
+	//r, _ := regexp.Compile(`.+\)`)
 	count := 0
 	dirs := 0
 	files, err := ioutil.ReadDir(path)
@@ -29,13 +31,13 @@ func scandirs(path string) []string {
 	}
 	// this is ugly, find a better way so this doesn't loop dirs twice
 	for _, f := range files {
-		if f.IsDir() && r.MatchString(f.Name()) && f.Name()[0] != '(' {
+		if f.IsDir() /*&& r.MatchString(f.Name()) && f.Name()[0] != '('*/ {
 			dirs++
 		}
 	}
 	founddirs := make([]string, dirs, dirs+1)
 	for _, f := range files {
-		if f.IsDir() && r.MatchString(f.Name()) && f.Name()[0] != '(' {
+		if f.IsDir() /*&& r.MatchString(f.Name()) && f.Name()[0] != '('*/ {
 			founddirs[count] = f.Name()
 			count++
 		}
@@ -45,21 +47,26 @@ func scandirs(path string) []string {
 
 // Get a raw dir title and extract information from it, should work for all YTS downloads
 func getmovie(in string) (string, string) {
-	in = strings.TrimSuffix(in, " [YTS.AG]")
+	rtitle, _ := regexp.Compile(`[^(]*`)
+	ryear, _ := regexp.Compile(`\(.+?\)`)
 
-	date := in[len(in)-5:]
-	date = strings.TrimSuffix(date, ")")
-
-	title := in[:strings.Index(in, "(")-1]
+	title := strings.TrimSpace(rtitle.FindString(in))
+	date := strings.Trim(ryear.FindString(in), "()")
 
 	return title, date
 }
 
 func getimdb(title string, date string) string {
+	if title == "" || date == "" {
+		return "NOTMOVIE"
+	}
 	query := &gomdb.QueryData{Title: title, Year: date}
 	res, err := gomdb.MovieByTitle(query)
 	if err != nil {
 		//fmt.Println("Querying OMDB failed:", err)
+	}
+	if res.ImdbID == "" {
+		return ""
 	}
 	return res.ImdbID
 }
@@ -71,33 +78,46 @@ func main() {
 	} else {
 		path = os.Args[1]
 	}
-	fmt.Println("Finding movies in:", path)
 	dirs := scandirs(path)
 	m := new(movie)
 
 	for _, dir := range dirs {
 		m.Title, m.Date = getmovie(dir)
+		filepath := path + `\` + dir + `\` // C:\target path\movie folder\
+		if m.Title == "" || m.Date == "" {
+			continue
+		}
+		imdb := getimdb(m.Title, m.Date)
+		if imdb == "NOTMOVIE" || imdb == "" {
+			continue
+		}
+		subs, err := yifysubs.GetSubtitles(imdb)
 
-		subs, err := yifysubs.GetSubtitles(getimdb(m.Title, m.Date))
 		if err != nil {
 			//fmt.Println("Sub finding failed")
 			continue
 		}
 		en := subs["english"][0]
 
-		file, err := os.Create(path + `\` + dir + `\` + m.Title + " " + "subtitles.srt")
-		if err != nil {
-			log.Panic("Unable to create subtitle file", err)
+		srt, err := os.Stat(filepath + m.Title + " subtitles.srt")
+		if srt == nil {
+			file, err := os.Create(filepath + m.Title + " Subtitles.srt")
+
+			if err != nil {
+				log.Panic("Unable to create subtitle file", err)
+			}
+
+			defer file.Close()
+			defer en.Close()
+
+			_, err = io.Copy(file, &en)
+			if err != nil {
+				log.Panic(err)
+			}
+			fmt.Println("Subtitles downloaded for:", dir)
+			continue
 		}
 
-		defer file.Close()
-		defer en.Close()
-
-		_, err = io.Copy(file, &en)
-		if err != nil {
-			log.Panic(err)
-		}
-
-		fmt.Println("Successfully got subtitles for:", dir)
+		fmt.Println("Subtitles already exist for:", dir)
 	}
 }
