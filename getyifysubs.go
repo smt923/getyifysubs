@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -120,4 +121,6 @@ func main() {
 
 		fmt.Println("Subtitles already exist for:", dir)
 	}
+	fmt.Print("Finished - press 'Enter' to continue...")
+	bufio.NewReader(os.Stdin).ReadBytes('\n')
 }
